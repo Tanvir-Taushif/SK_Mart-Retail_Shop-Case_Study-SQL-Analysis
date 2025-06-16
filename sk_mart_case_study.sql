@@ -322,6 +322,35 @@ WHERE id IN (
 
 -- 13. Delete products that haven’t been sold in the last 6 months.
 
+-- Products
+select 
+*
+from products
+where id not in (
+  select 
+  distinct oi.product_id
+  from order_items oi
+  join 
+  orders o 
+  on oi.order_id = o.id
+  where o.order_date >= (
+    select max(order_date) from orders
+  ) - interval 6 month
+);
+
+-- Code to delete
+
+delete from products
+where id not in (
+  select 
+  distinct oi.product_id
+  from order_items oi
+  join orders o 
+  on oi.order_id = o.id
+  where o.order_date >= (
+    select max(order_date) from orders
+  ) - interval 6 month
+);
 -- 14. Rank customers by total amount spent.
 
 with customer_total_spending as ( 
@@ -408,3 +437,249 @@ select
 from ranking
 where product_ranking <= 3;
 
+-- 16. Calculate a running total of daily revenue
+
+with daily_revenue as (
+	select
+	date(order_date) as order_date,
+	round(sum(oi.quantity*p.price*(1-p.discount_percent/100))) as revenue
+	from orders o
+	left join order_items oi
+	on o.id = oi.order_id
+	left join products p
+	on oi.product_id = p.id
+	group by 1
+	order by 1
+)
+select
+*,
+sum(revenue) over (order by date(order_date)) as running_revenue
+from daily_revenue;
+
+-- 17. Compute a 7-day rolling average of total order amounts.
+
+with daily_revenue as (
+	select
+	date(o.order_date) as order_date,
+	sum(oi.quantity) as order_amount
+	from orders o
+	left join order_items oi
+	on o.id = oi.order_id
+	group by 1
+	order by 1
+)
+select
+*,
+round(
+	avg(order_amount) over(
+		order by order_date
+		rows between 6 preceding and current row
+	), 2 
+) as 7_days_rolling_avg
+from daily_revenue;
+
+-- 18. Show the time difference between each customer's consecutive orders.
+
+-- customer's avg order date
+
+select
+full_name,
+round(avg(date_difference)) as avg_order_days
+from (
+	select
+	o.customer_id,
+	c.full_name,
+	date(o.order_date) as order_date,
+	lag(date(o.order_date)) over(
+		partition by customer_id
+		order by date(o.order_date)
+	) as previous_order_date,
+	datediff(
+		date(o.order_date),
+		lag(date(o.order_date)) over (partition by o.customer_id order by date(o.order_date))
+	) as date_difference
+	from orders o
+	left join customers c
+	on o.customer_id = c.id
+	order by o.customer_id
+) as date_diff
+group by customer_id;
+
+-- 19. Identify customers who placed two orders on back-to-back days. 
+
+with purchase_dates as(
+	select
+		o.customer_id,
+		c.full_name,
+		date(o.order_date) as order_date,
+		lag(date(o.order_date)) over(
+			partition by customer_id
+			order by date(o.order_date)
+		) as previous_order_date
+	from orders o
+	left join customers c
+	on o.customer_id = c.id
+	order by o.customer_id
+)
+select
+distinct customer_id,
+full_name
+from purchase_dates
+where datediff(order_date, previous_order_date) = 1;
+
+-- 20. Classify orders as ‘High’, ‘Medium’, or ‘Low’ value based on amount
+
+with ranked_orders as(
+	select
+	o.id as order_id,
+	sum(oi.quantity) as order_amount,
+	ntile(3) over (order by sum(oi.quantity)) as qnt_grp
+	from orders o
+	left join order_items oi
+	on o.id = oi.order_id
+	group by o.id
+)
+select
+order_id,
+order_amount,
+case qnt_grp
+	when 1 then 'Low'
+    when 2 then 'Medium'
+    else 'High'
+end as order_class
+from ranked_orders;
+
+-- 21. Show whether each day’s sales were higher or lower than the previous day.
+
+with daily_revenue as (
+  select
+    date(o.order_date) as order_date,
+    round(sum(oi.quantity * p.price * (1 - p.discount_percent / 100)), 2) as revenue
+  from orders o
+  left join order_items oi on o.id = oi.order_id
+  left join products p on oi.product_id = p.id
+  group by date(o.order_date)
+),
+revenue_with_lag as (
+  select
+    order_date,
+    revenue,
+    lag(revenue) over (order by order_date) as previous_day_revenue
+  from daily_revenue
+)
+select
+  order_date,
+  revenue,
+  previous_day_revenue,
+  round(
+    (revenue - previous_day_revenue) / previous_day_revenue * 100, 
+    2
+  ) as day_over_day_percent_change
+from revenue_with_lag;
+
+-- 22. Find customers who placed only one order ever.
+
+select
+o.customer_id,
+c.full_name
+from orders o
+left join customers c
+on o.customer_id = c.id
+left join order_items oi
+on o.id = oi.order_id
+group by 1
+having count(oi.quantity) = 1;
+
+-- 23. Find products that were only ordered during marketing campaigns.
+
+with campaign_products as (
+	select
+	o.id,
+	oi.product_id
+	from orders o
+	left join order_items oi
+	on o.id = oi.order_id
+	where o.marketing_id is not null
+),
+non_campaign_products as (
+	select
+	o.id,
+	oi.product_id
+	from orders o
+	left join order_items oi
+	on o.id = oi.order_id
+	where o.marketing_id is null
+)
+select
+*
+from campaign_products cp
+left join non_campaign_products ncp
+on cp.product_id = ncp.product_id
+where ncp.product_id is null;
+
+-- 24. Find the most popular product among buyers of 'Soybean Oil'.
+
+with soybean_buyers as (
+  select distinct o.customer_id
+  from orders o
+  left join order_items oi 
+  on o.id = oi.order_id
+  left join products p 
+  on oi.product_id = p.id
+  where p.name = 'Soybean Oil'
+),
+order_quantity as (
+  select
+    oi.product_id,
+    p.name,
+    sum(oi.quantity) as total_order
+  from orders o
+  join soybean_buyers sb 
+  on o.customer_id = sb.customer_id
+  join order_items oi 
+  on o.id = oi.order_id
+  left join products p
+  on oi.product_id = p.id
+  group by oi.product_id
+)
+select
+name,
+total_order
+from order_quantity oq
+where oq.total_order = (
+	select 
+    max(total_order)
+    from order_quantity
+)
+
+-- 25. Create a trigger to update last_order_date after a new order. 
+
+delimiter $$
+
+create trigger update_last_order_date
+after insert on orders
+for each row
+begin
+  update customers
+  set last_order_date = new.order_date
+  where id = new.customer_id
+    and (last_order_date is null or new.order_date > last_order_date);
+end$$
+
+delimiter ;
+
+-- 26. Schedule an update to refresh all last_order_date fields once daily.
+
+set global event_scheduler = on;
+
+create event update_last_order_dates_daily
+on schedule every 1 day
+starts current_timestamp
+on completion preserve
+do
+  update customers c
+  set last_order_date = (
+    select max(o.order_date)
+    from orders o
+    where o.customer_id = c.id
+  );
