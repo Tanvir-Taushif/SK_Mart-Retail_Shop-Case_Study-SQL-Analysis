@@ -43,5 +43,10 @@ Below are the slides included in the project:
 
 ---
 
-## 📁 Repository Structure
+## 📦 Dataset Source
+
+The dataset used in this SQL case study is publicly available in a separate repository:
+
+🔗 **[SK Mart Retail Shop Data – Download Link](https://github.com/Tanvir-Taushif/free-datasets-for-learning/tree/main/SK%20Mart%20Retail%20Shop%20Data)**  
+This includes structured SQL-compatible tables covering orders, customers, products, order items, and marketing campaigns.
 
