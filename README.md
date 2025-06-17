@@ -2,6 +2,13 @@
 
 This project presents a SQL-based case study analyzing SK Mart, a growing retail chain in Dhaka, Bangladesh. It includes SQL queries, data analysis, and business insights to help SK Mart optimize operations and understand customer behavior.
 
+## 🗂️ Database ER Diagram
+
+The following ER diagram shows the structure of the SK Mart database used for analysis:
+
+![ER Diagram](Images/ER%20Diagram.png)
+
+
 ## 📊 Slides Overview
 
 Below are the slides included in the project:
