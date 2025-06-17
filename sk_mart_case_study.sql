@@ -213,6 +213,16 @@ on product_id = p.id
 group by 1
 order by 1;
 
+-- Under which Promotional Campaign
+
+select
+o.marketing_id,
+mc.campaign_name
+from orders o
+left join marketing_campaigns mc
+on o.marketing_id = mc.id
+where date(o.order_date) = '2025-06-11';
+
 -- revenue trend over months
 select
 	date_format(date(order_date),'%Y-%m') as `year_month`,
@@ -224,6 +234,16 @@ left join products p
 on product_id = p.id
 group by 1
 order by 1;
+
+-- Under which Promotional Campaign
+
+select
+distinct o.marketing_id,
+mc.campaign_name
+from orders o
+join marketing_campaigns mc
+on o.marketing_id = mc.id
+where date(o.order_date) between '2025-05-01' and '2025-05-31';
 
 -- 8. Which payment method is used most frequently?
 
@@ -249,18 +269,18 @@ select
 s.store_name,
 sum(i.quantity) as quantity
 from stores s
-left join inventory i
+join inventory i
 on s.id = i.store_id
 group by 1
 order by 2 desc;
 
--- inventory levels per store
+-- inventory levels per product
 
 select
 p.name,
 sum(i.quantity) as quantity
 from products p
-left join inventory i
+join inventory i
 on p.id = i.product_id
 group by 1
 order by 2 desc;
@@ -351,6 +371,7 @@ where id not in (
     select max(order_date) from orders
   ) - interval 6 month
 );
+
 -- 14. Rank customers by total amount spent.
 
 with customer_total_spending as ( 
@@ -367,6 +388,9 @@ with customer_total_spending as (
     on o.customer_id = c.id
 	group by 1
 )
+-- select
+-- 	round(avg(total_spend)) as avg_spend
+-- from customer_total_spending;
 select
 	name,
 	total_spend,
@@ -483,31 +507,48 @@ from daily_revenue;
 -- customer's avg order date
 
 select
-full_name,
-round(avg(date_difference)) as avg_order_days
+  full_name,
+  round(avg(datediff(order_date, previous_order_date))) as avg_order_days
 from (
-	select
-	o.customer_id,
-	c.full_name,
-	date(o.order_date) as order_date,
-	lag(date(o.order_date)) over(
-		partition by customer_id
-		order by date(o.order_date)
-	) as previous_order_date,
-	datediff(
-		date(o.order_date),
-		lag(date(o.order_date)) over (partition by o.customer_id order by date(o.order_date))
-	) as date_difference
-	from orders o
-	left join customers c
-	on o.customer_id = c.id
-	order by o.customer_id
-) as date_diff
+  select
+    o.customer_id,
+    c.full_name,
+    date(o.order_date) as order_date,
+    lag(date(o.order_date)) over (
+      partition by o.customer_id
+      order by o.order_date
+    ) as previous_order_date
+  from orders o
+  join customers c 
+  on o.customer_id = c.id
+) as sub
+where previous_order_date is not null
 group by customer_id;
+
+-- Time Difference
+
+select
+  o.customer_id,
+  c.full_name,
+  date(o.order_date) as order_date,
+  lag(date(o.order_date)) over (
+    partition by o.customer_id
+    order by o.order_date
+  ) as previous_order_date,
+  datediff(
+    date(o.order_date),
+    lag(date(o.order_date)) over (
+      partition by o.customer_id
+      order by o.order_date
+    )
+  ) as days_between_orders
+from orders o
+join customers c on o.customer_id = c.id
+order by o.customer_id, o.order_date;
 
 -- 19. Identify customers who placed two orders on back-to-back days. 
 
-with purchase_dates as(
+with purchase_dates as (
 	select
 		o.customer_id,
 		c.full_name,
@@ -522,8 +563,8 @@ with purchase_dates as(
 	order by o.customer_id
 )
 select
-distinct customer_id,
-full_name
+	distinct customer_id,
+	full_name
 from purchase_dates
 where datediff(order_date, previous_order_date) = 1;
 
@@ -650,7 +691,7 @@ where oq.total_order = (
 	select 
     max(total_order)
     from order_quantity
-)
+);
 
 -- 25. Create a trigger to update last_order_date after a new order. 
 
